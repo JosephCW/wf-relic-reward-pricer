@@ -39,6 +39,11 @@ SCREENSHOT_COORDS = {
 }
 
 
+def cache_file_expired(file_path, current_unix_time):
+    # Trust that that file is there as it was found below in os.listdir()
+    return os.path.getmtime(file_path) + PRICE_CACHE_TIME_SECONDS < current_unix_time
+
+
 def price_items(num_relics):
     # Take screenshot and ocr the text
     screenshots = take_screenshots(num_relics=num_relics)
@@ -51,23 +56,23 @@ def price_items(num_relics):
     items_needing_pricing = []
     already_priced_items = []
 
-    cached_prices = os.listdir(CACHED_DIR)
-    current_time = int(time())
+    cached_price_files = os.listdir(CACHED_DIR)
     for item in items:
         formatted_name = format_name_with_underscore(item)
         file_name = formatted_name + '.txt'
         full_file_path = CACHED_DIR + file_name
         # verify that cache isn't older than 3 days
-        if file_name in cached_prices:
-            if os.path.getmtime(full_file_path) + PRICE_CACHE_TIME_SECONDS > current_time:
+        if file_name in cached_price_files:
+            if not cache_file_expired(full_file_path, current_unix_time=int(time())):
                 f = open(full_file_path, 'r')
                 already_priced_items.append(ast.literal_eval(f.read()))
-                print('Already had price for {}'.format(item))
+                print('Already had price for {}.'.format(item))
                 continue
 
-            print('Had a price for {} but was expired.'.format(item))
+            print('Had a price for {}, but was expired.'.format(item))
             items_needing_pricing.append(item)
         else:
+            print('Did not have a price for {}.')
             items_needing_pricing.append(item)
 
     # wfm wants items as volt_prime_neuroptics not volt_prime_neuroptics_blueprint
@@ -81,19 +86,21 @@ def price_items(num_relics):
     item_prices.extend(already_priced_items)
 
     pp = pprint.PrettyPrinter(indent=4, sort_dicts=False)
-    #sItems = {k: v for k, v in sorted(item_prices.items(), key=lambda kv: kv[1][0])}
+    # Order the print results by most expensive item first
     s_items = sorted(item_prices, key=lambda item: item['lowest <=10 prices'][0], reverse=True)
     pp.pprint([{
-        item['item_name']: item['lowest <=10 prices'][0:5] if len(item['lowest <=10 prices']) >= 5 else item['lowest <=10 prices']
+        item['item_name']: item['lowest <=10 prices'][0:5] if len(item['lowest <=10 prices']) >= 5
+        else item['lowest <=10 prices']
     } for item in s_items])
 
     # write out the prices to files
-    print('Writing new prices to cache: ' + str(prices_to_write))
-    for item in prices_to_write:
-        file_name = CACHED_DIR + '_'.join(item['item_name'].split(' ')) + '.txt'
-        f = open(file_name, 'w')
-        f.write(str(item))
-        f.close()
+    if prices_to_write:
+        print('Writing new prices to cache: ' + str(prices_to_write))
+        for item in prices_to_write:
+            file_name = CACHED_DIR + '_'.join(item['item_name'].split(' ')) + '.txt'
+            f = open(file_name, 'w')
+            f.write(str(item))
+            f.close()
 
     print('--------------------------------------')
 
@@ -228,7 +235,7 @@ def calc_wfm_stats(items, wfm_responses):
             if order['user']['status'] == 'ingame' and order['order_type'] == 'sell':
                 online_orders.append(order)
 
-        # build a map of cost & count for online orders
+        # build a map of cost -> count for online orders
         online_price_map = {}
         for order in online_orders:
             cost = order['platinum']
@@ -239,6 +246,7 @@ def calc_wfm_stats(items, wfm_responses):
             else:
                 online_price_map[cost] = 1
 
+        # sort so the keys in the dictionary are in increasing order of price, then grab first x prices.
         sorted_price_map = sorted(online_price_map.items())
         num_prices_remaining = 10
         lowest_prices = []
