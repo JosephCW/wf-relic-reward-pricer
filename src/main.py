@@ -54,21 +54,27 @@ def price_items(num_relics):
     cached_prices = os.listdir(CACHED_DIR)
     current_time = int(time())
     for item in items:
-        file_name = '_'.join(item.split(' ')) + '.txt'
+        formatted_name = format_name_with_underscore(item)
+        file_name = formatted_name + '.txt'
         full_file_path = CACHED_DIR + file_name
         # verify that cache isn't older than 3 days
         if file_name in cached_prices:
             if os.path.getmtime(full_file_path) + PRICE_CACHE_TIME_SECONDS > current_time:
                 f = open(full_file_path, 'r')
                 already_priced_items.append(ast.literal_eval(f.read()))
-                print('Already had price for {}'.format(file_name))
+                print('Already had price for {}'.format(item))
                 continue
 
+            print('Had a price for {} but was expired.'.format(item))
             items_needing_pricing.append(item)
         else:
             items_needing_pricing.append(item)
 
-    wfm_responses = get_json_from_wfm(items_needing_pricing)
+    # wfm wants items as volt_prime_neuroptics not volt_prime_neuroptics_blueprint
+    items_needing_pricing_formatted = \
+        [format_name_with_underscore(format_name_as_wfm_name(item)) for item in items_needing_pricing]
+
+    wfm_responses = get_json_from_wfm(items_needing_pricing_formatted)
     item_prices = calc_wfm_stats(items_needing_pricing, wfm_responses)
     # TODO: get rid of this next line :(
     prices_to_write = item_prices.copy()
@@ -80,7 +86,6 @@ def price_items(num_relics):
     pp.pprint([{
         item['item_name']: item['lowest <=10 prices'][0:5] if len(item['lowest <=10 prices']) >= 5 else item['lowest <=10 prices']
     } for item in s_items])
-
 
     # write out the prices to files
     print('Writing new prices to cache: ' + str(prices_to_write))
@@ -107,8 +112,17 @@ def fix_typos(name):
         .replace('pame', 'prime')
 
 
+def format_name_with_underscore(name):
+    name = '_'.join(name.split(' '))
+    return name
+
+
 def format_name_as_wfm_name(name):
-    pass
+    # WFM doesn't store blueprint on the name of anything except actual warframe blueprints
+    if 'systems' in name or 'chassis' in name or 'neuroptics' in name or 'harness' in name or 'wings' in name:
+        name = name.replace(' blueprint', '')
+
+    return name
 
 
 def main():
@@ -180,12 +194,7 @@ def get_items_from_images(images):
             screenshot = take_top_row_screenshot(len(images), images.index(image))
             text = get_items_from_images([screenshot])[0] + ' ' + text
 
-        # WFM doesn't store blueprint on the name of anything except actual warframe blueprints
-        if 'systems' in text or 'chassis' in text or 'neuroptics' in text or 'harness' in text or 'wings' in text:
-            text = text.replace(' blueprint', '')
-
         items.append(text)
-
     return items
 
 
@@ -194,10 +203,10 @@ def filter_items(items):
 
 
 def get_json_from_wfm(item_names):
+    # This function expects the name to already come in formatted
     json_results = []
     for item_name in item_names:
-        query_name = "_".join(item_name.split(' '))
-        query_url = QUERY_URL.format(query_name)
+        query_url = QUERY_URL.format(item_name)
         print(query_url)
         r = requests.get(query_url)
         json_results.append(r.json())
