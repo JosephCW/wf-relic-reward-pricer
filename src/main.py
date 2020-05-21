@@ -1,30 +1,32 @@
+# Built in python libs
 import ast
-from math import inf
 import os
 from time import time
 
-import cv2
-import numpy as nm
 import pprint
-import pytesseract
-import requests
-from matplotlib import pyplot as plt
-import numpy as np
-
-from PIL import ImageGrab
-
 from pynput.keyboard import Key, Listener
+import requests
+
+# image manipulation
+import cv2
+import numpy as np
+import pytesseract
+from PIL import ImageGrab
+from matplotlib import pyplot as plt
 
 pytesseract.pytesseract.tesseract_cmd ='C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
 QUERY_URL = 'https://api.warframe.market/v1/items/{}/orders?include=item'
-
-bad_items = [
+PYTESSERACT_CONFIG = '--psm 7 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz "'
+PRICE_CACHE_TIME_SECONDS = 259200  # 3 days in seconds
+CACHED_DIR = 'C:\\Users\\josep\\Desktop\\CachedPrices\\'
+FILTERED_ITEMS = [
     'forma blueprint'
 ]
-
-cache_timer_seconds = 259200  # 3 days in seconds
-
-ss_coords = {
+"""
+number of relics: [ leftmost relic -> (x left, y left, x right, y right),
+               second relic   -> (x left, y left, x right, y right) ] 
+"""
+SCREENSHOT_COORDS = {
     2: [(725, 432, 950, 460),
         (967, 432, 1192, 460)],
     3: [(605, 432, 825, 460),
@@ -36,15 +38,11 @@ ss_coords = {
         (1210, 432, 1435, 460)]
 }
 
-def test_bug(items):
-    #price_items(items)
-    pass
 
 def price_items(num_relics):
     # Take screenshot and ocr the text
     screenshots = take_screenshots(num_relics=num_relics)
     parsed_items = get_items_from_images(screenshots)
-    print(parsed_items)
     print(parsed_items)
     unique_items = set(parsed_items)
 
@@ -53,16 +51,14 @@ def price_items(num_relics):
     items_needing_pricing = []
     already_priced_items = []
 
-    cached_dir = 'C:\\Users\\josep\\Desktop\\CachedPrices\\'
-
-    cached_prices = os.listdir(cached_dir)
+    cached_prices = os.listdir(CACHED_DIR)
     current_time = int(time())
     for item in items:
         file_name = '_'.join(item.split(' ')) + '.txt'
-        full_file_path = cached_dir + file_name
+        full_file_path = CACHED_DIR + file_name
         # verify that cache isn't older than 3 days
         if file_name in cached_prices:
-            if os.path.getmtime(full_file_path) + cache_timer_seconds > current_time:
+            if os.path.getmtime(full_file_path) + PRICE_CACHE_TIME_SECONDS > current_time:
                 f = open(full_file_path, 'r')
                 already_priced_items.append(ast.literal_eval(f.read()))
                 print('Already had price for {}'.format(file_name))
@@ -89,12 +85,30 @@ def price_items(num_relics):
     # write out the prices to files
     print('Writing new prices to cache: ' + str(prices_to_write))
     for item in prices_to_write:
-        file_name = cached_dir + '_'.join(item['item_name'].split(' ')) + '.txt'
+        file_name = CACHED_DIR + '_'.join(item['item_name'].split(' ')) + '.txt'
         f = open(file_name, 'w')
         f.write(str(item))
         f.close()
 
     print('--------------------------------------')
+
+
+def fix_typos(name):
+    return name.replace('bartel', 'barrel') \
+        .replace('bikeprint', 'blueprint') \
+        .replace('blueprin', 'blueprint') \
+        .replace('blueprintt', 'blueprint') \
+        .replace('carries', 'carrier') \
+        .replace('fragot', 'fragor') \
+        .replace('fagor', 'fragor') \
+        .replace('ninkendi', 'ninkondi') \
+        .replace('inyx', 'nyx') \
+        .replace('prine', 'prime') \
+        .replace('pame', 'prime')
+
+
+def format_name_as_wfm_name(name):
+    pass
 
 
 def main():
@@ -119,13 +133,13 @@ def take_screenshots(num_relics):
     for relic in range(num_relics):
         relics.append(
             ImageGrab.grab(
-                bbox=ss_coords[num_relics][relic]))
+                bbox=SCREENSHOT_COORDS[num_relics][relic]))
 
     return relics
 
 
 def take_top_row_screenshot(num_relics, relic):
-    coords = ss_coords[num_relics][relic]
+    coords = SCREENSHOT_COORDS[num_relics][relic]
     top_row_coords = (coords[0], coords[1]-25, coords[2], coords[3]-22)
     return ImageGrab.grab(bbox=top_row_coords)
 
@@ -136,6 +150,7 @@ def show(title, img, color=True):
     else:
         plt.imshow(img, cmap='gray'), plt.title(title), plt.show()
 
+
 def get_items_from_images(images):
     items = []
 
@@ -143,34 +158,20 @@ def get_items_from_images(images):
         np_image = np.array(image)
         opencv_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
         hsv = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2HSV)
-        #hsv = cv2.cvtColor(nm.array(image), cv2.COLOR_BGR2HSV)
-        #img2 = cv2.GaussianBlur(nm.array(image), (3, 3), 1)
-        #cv2.imshow('blur', img2)
-
-        #mask = cv2.inRange(hsv, (6, 79, 93), (31, 255, 255)) # filter yellow
-        #mask = cv2.inRange(hsv, (0, 65, 93), (32, 255, 255)) # filter yellow
         mask = cv2.inRange(hsv, (0, 75, 93), (32, 255, 255))  # filter yellow
         show('mask', mask, False)
 
         res = 255 - mask
         show('result', res, False)
 
-        #grayscale_image = cv2.cvtColor(nm.array(image), cv2.COLOR_BGR2GRAY)
-        text = pytesseract.image_to_string(res, lang='eng', config='--psm 7 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz "').lower()
+        # grayscale_image = cv2.cvtColor(nm.array(image), cv2.COLOR_BGR2GRAY)
+        text = pytesseract.image_to_string(res, lang='eng', config=PYTESSERACT_CONFIG).lower()
+
+        # TODO - With this filter is it still possible to get \n in results?
         text = text.replace('\n', ' ')
 
         # Fix any weird typos that I've seen while testing and can't improve mask on
-        text = text.replace('bartel', 'barrel')\
-            .replace('bikeprint', 'blueprint') \
-            .replace('blueprin', 'blueprint') \
-            .replace('blueprintt', 'blueprint') \
-            .replace('carries', 'carrier') \
-            .replace('fragot', 'fragor') \
-            .replace('fagor', 'fragor') \
-            .replace('ninkendi', 'ninkondi') \
-            .replace('inyx', 'nyx') \
-            .replace('prine', 'prime') \
-            .replace('pame', 'prime')
+        text = fix_typos(text)
 
         # If there was wordwrap on the item detect it and recursively add the top row
         # Specific case for 'neuroptics blueprint' because of 'wukong \n neuroptics blueprint
@@ -189,7 +190,7 @@ def get_items_from_images(images):
 
 
 def filter_items(items):
-    return [item for item in items if item not in bad_items]
+    return [item for item in items if item not in FILTERED_ITEMS]
 
 
 def get_json_from_wfm(item_names):
