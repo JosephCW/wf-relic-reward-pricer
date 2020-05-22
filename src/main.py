@@ -18,7 +18,7 @@ pytesseract.pytesseract.tesseract_cmd ='C:\\Program Files\\Tesseract-OCR\\tesser
 QUERY_URL = 'https://api.warframe.market/v1/items/{}/orders?include=item'
 PYTESSERACT_CONFIG = '--psm 7 -c tessedit_char_whitelist="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz "'
 PRICE_CACHE_TIME_SECONDS = 259200  # 3 days in seconds
-CACHED_DIR = 'C:\\Users\\josep\\Desktop\\CachedPrices\\'
+CACHED_DIR = "C:\\Users\\josep\\PycharmProjects\\WFRelicRewardPricer\\cached-prices\\"
 FILTERED_ITEMS = [
     'forma blueprint'
 ]
@@ -38,6 +38,11 @@ SCREENSHOT_COORDS = {
         (1210, 432, 1435, 460)]
 }
 
+CURRENT_UI_THEME = 'BARUUK'
+FILTERED_HSV_RANGES = {
+    'BARUUK': [(0, 75, 93), (32, 255, 255)]
+}
+
 
 def cache_file_expired(file_path, current_unix_time):
     # Trust that that file is there as it was found below in os.listdir()
@@ -45,7 +50,6 @@ def cache_file_expired(file_path, current_unix_time):
 
 
 def price_items(num_relics):
-    # Take screenshot and ocr the text
     screenshots = take_screenshots(num_relics=num_relics)
     parsed_items = get_items_from_images(screenshots)
     print(parsed_items)
@@ -72,7 +76,7 @@ def price_items(num_relics):
             print('Had a price for {}, but was expired.'.format(item))
             items_needing_pricing.append(item)
         else:
-            print('Did not have a price for {}.')
+            print('Did not have a price for {} cached.'.format(item))
             items_needing_pricing.append(item)
 
     # wfm wants items as volt_prime_neuroptics not volt_prime_neuroptics_blueprint
@@ -176,16 +180,21 @@ def get_items_from_images(images):
     items = []
 
     for image in images:
+        # Make the image readable by cv2 by converting to an np array
         np_image = np.array(image)
+        # convert from rgb -> HSV in order to use the cv2.inRange() function to create a mask
         opencv_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
         hsv = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, (0, 75, 93), (32, 255, 255))  # filter yellow
+        mask = cv2.inRange(hsv,
+                           FILTERED_HSV_RANGES[CURRENT_UI_THEME][0],
+                           FILTERED_HSV_RANGES[CURRENT_UI_THEME][1])
         show('mask', mask, False)
 
         res = 255 - mask
         show('result', res, False)
 
         # grayscale_image = cv2.cvtColor(nm.array(image), cv2.COLOR_BGR2GRAY)
+        # Use pytesseract OCR
         text = pytesseract.image_to_string(res, lang='eng', config=PYTESSERACT_CONFIG).lower()
 
         # TODO - With this filter is it still possible to get \n in results?
@@ -214,7 +223,7 @@ def get_json_from_wfm(item_names):
     json_results = []
     for item_name in item_names:
         query_url = QUERY_URL.format(item_name)
-        print(query_url)
+        print('Fetching Item prices from {}...'.format(query_url))
         r = requests.get(query_url)
         json_results.append(r.json())
 
